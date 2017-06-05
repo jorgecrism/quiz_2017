@@ -241,6 +241,7 @@ exports.randomcheck = function (req, res, next) {
     if (!req.session.questions) req.session.questions = [-1];
 
     var answer = req.query.answer || "";
+	var score = req.session.score;
 
     var result = answer.toLowerCase().trim() === req.quiz.answer.toLowerCase().trim();
 
@@ -248,7 +249,7 @@ exports.randomcheck = function (req, res, next) {
         var score = ++req.session.score;
     else {
         
-        req.session.score = 0;
+        score = 0;
         req.session.questions = [-1];
     }
 
