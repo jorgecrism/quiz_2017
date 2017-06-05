@@ -216,7 +216,7 @@ exports.randomplay = function (req, res, next) {
 
                 }
             } else{
-                score = req.session.score;
+               var score = req.session.score;
                 req.session.score=0;
                 req.session.questions=[-1];
                 res.render('quizzes/random_nomore',{
