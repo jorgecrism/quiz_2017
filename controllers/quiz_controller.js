@@ -237,13 +237,14 @@ exports.randomcheck = function (req, res, next) {
 	if (!req.session.score) req.session.score = 0;
 	req.session.questions.push(req.quiz.id);
 	var answer = req.query.answer || "";
-	var score = req.session.score;
+	
 
    var result = answer.toLowerCase().trim() === req.quiz.answer.toLowerCase().trim();
     
     if (result) {
-        req.session.score++;
+        var score = ++req.session.score;
     } else {
+	var score = req.session.score;
         req.session.score = 0;
         req.session.questions = [-1];
     }
