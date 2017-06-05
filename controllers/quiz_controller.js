@@ -247,7 +247,7 @@ exports.randomcheck = function (req, res, next) {
     if (result)
         var score = ++req.session.score;
     else {
-        var score = req.session.score;
+        
         req.session.score = 0;
         req.session.questions = [-1];
     }
