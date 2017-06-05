@@ -222,7 +222,7 @@ exports.randomplay = function (req, res, next) {
                 req.session.score=0;
                 req.session.questions=[-1];
                 res.render('quizzes/random_nomore',{
-                    score: score
+                    score: req.session.score;
                 });
 
             }
@@ -255,6 +255,6 @@ exports.randomcheck = function (req, res, next) {
        
        result: result,
        answer: answer,
-       score: score
+       score:  req.session.score
     });
 };
