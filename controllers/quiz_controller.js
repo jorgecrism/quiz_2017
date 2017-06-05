@@ -187,3 +187,71 @@ exports.check = function (req, res, next) {
         answer: answer
     });
 };
+
+
+// GET /quizzes/randomplay
+exports.randomplay = function (req, res, next) {
+
+
+    var answer = req.query.answer || '';
+    if(!req.session.score)req.session.score=0;
+    if(!req.session.questions)req.session.questions=[-1];
+
+    models.Quiz.count().then(function (count){
+
+            var indice={where:{'id': {$notIn: req.session.questions}}};
+
+            return models.Quiz.findAll(indice);
+        })
+        .then(function(quizzes) {
+            if(quizzes.length !== 0) {
+                var quiz_total = quizzes[0];
+                if(quiz_total){
+                    req.quiz = quiz_total;
+                    res.render('quizzes/random_play', {
+                        quiz: req.quiz,
+                        answer: answer,
+                        score: req.session.score
+                    });
+
+                }
+            } else{
+                score = req.session.score;
+                req.session.score=0;
+                req.session.questions=[-1];
+                res.render('quizzes/random_nomore',{
+                    score: score
+                });
+
+            }
+        })
+        .catch(function(error){
+            next(error);
+        });
+};
+
+
+// GET /quizzes/:quizId/randomcheck
+exports.randomcheck = function (req, res, next) {
+
+	if (!req.session.score) req.session.score = 0;
+	req.session.questions.push(req.quiz.id);
+	var answer = req.query.answer || "";
+	var score = req.session.score;
+
+   var result = answer.toLowerCase().trim() === req.quiz.answer.toLowerCase().trim();
+    
+    if (result) {
+        req.session.score++;
+    } else {
+        req.session.score = 0;
+        req.session.questions = [-1];
+    }
+
+   res.render('quizzes/random_result', {
+       
+       result: result,
+       answer: answer,
+       score: score
+    });
+};
