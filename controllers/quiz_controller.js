@@ -1,41 +1,22 @@
 var models = require("../models");
 var Sequelize = require('sequelize');
-var cloudinary = require('cloudinary');
-var fs = require('fs');
-var attHelper = require("../helpers/attachments");
 
 var paginate = require('../helpers/paginate').paginate;
 
-// Opciones para los ficheros subidos a Cloudinary
-var cloudinary_upload_options = {
-    async: true,
-    folder: "/core/quiz2017/attachments",
-    resource_type: "auto",
-    tags: ['core', 'quiz']
-};
-
 // Autoload el quiz asociado a :quizId
 exports.load = function (req, res, next, quizId) {
-
-    var options = {
+    models.Tip
+    models.Quiz.findById(quizId, {
         include: [
-            models.Tip,
-            models.Attachment,
+            {
+                model: models.Tip,
+                    include: [
+                        {model: models.User, as: 'Author'},
+                    ]
+            },
             {model: models.User, as: 'Author'}
         ]
-    };
-
-    // Para usuarios logeados: incluir los favoritos de la pregunta filtrando por
-    // el usuario logeado con un OUTER JOIN.
-    if (req.session.user) {
-        options.include.push({
-            model: models.Favourite,
-            where: {UserId: req.session.user.id},
-            required: false  // OUTER JOIN
-        });
-    }
-
-    models.Quiz.findById(quizId, options)
+    })
     .then(function (quiz) {
         if (quiz) {
             req.quiz = quiz;
@@ -66,7 +47,6 @@ exports.adminOrAuthorRequired = function(req, res, next){
 
 
 // GET /quizzes
-// GET /users/:userId/quizzes
 exports.index = function (req, res, next) {
 
     var countOptions = {
@@ -85,13 +65,8 @@ exports.index = function (req, res, next) {
 
     // Si existe req.user, mostrar solo sus preguntas.
     if (req.user) {
-        countOptions.where = {AuthorId: req.user.id};
-
-        if (req.session.user && req.session.user.id == req.user.id) {
-            title = "Mis Preguntas";
-        } else {
-            title = "Preguntas de " + req.user.username;
-        }
+        countOptions.where.AuthorId = req.user.id;
+        title = "Preguntas de " + req.user.username;
     }
 
     models.Quiz.count(countOptions)
@@ -99,7 +74,7 @@ exports.index = function (req, res, next) {
 
         // Paginacion:
 
-        var items_per_page = 8;
+        var items_per_page = 10;
 
         // La pagina a mostrar viene en la query
         var pageno = parseInt(req.query.pageno) || 1;
@@ -112,46 +87,16 @@ exports.index = function (req, res, next) {
 
         findOptions.offset = items_per_page * (pageno - 1);
         findOptions.limit = items_per_page;
-
-        findOptions.include = [
-            models.Attachment,
-            {model: models.User, as: 'Author'}
-        ];
-
-        // Para usuarios logeados: incluir los fans de las preguntas filtrando por
-        // el usuario logeado con un OUTER JOIN.
-        if (req.session.user) {
-            findOptions.include.push({
-                model: models.Favourite,
-                where: {UserId: req.session.user.id},
-                required: false  // OUTER JOIN
-            });
-        }
+        findOptions.include = [{model: models.User, as: 'Author'}];
 
         return models.Quiz.findAll(findOptions);
     })
     .then(function (quizzes) {
-
-        var format = (req.params.format || 'html').toLowerCase();
-
-        switch (format) {
-            case 'html':
-                res.render('quizzes/index.ejs', {
-                    quizzes: quizzes,
-                    search: search,
-                    cloudinary: cloudinary,
-                    title: title
-                });
-                break;
-
-            case 'json':
-                res.json(quizzes);
-                break;
-
-            default:
-                console.log('No se soporta el formato \".'+format+'\".');
-                res.sendStatus(406);
-        }
+        res.render('quizzes/index.ejs', {
+            quizzes: quizzes,
+            search: search,
+            title: title
+        });
     })
     .catch(function (error) {
         next(error);
@@ -162,24 +107,7 @@ exports.index = function (req, res, next) {
 // GET /quizzes/:quizId
 exports.show = function (req, res, next) {
 
-    var format = (req.params.format || 'html').toLowerCase();
-
-    switch (format) {
-        case 'html':
-            res.render('quizzes/show', {
-                quiz: req.quiz,
-                cloudinary: cloudinary
-            });
-            break;
-
-        case 'json':
-            res.json(req.quiz);
-            break;
-
-        default:
-            console.log('No se soporta el formato \".'+format+'\".');
-            res.sendStatus(406);
-    }
+    res.render('quizzes/show', {quiz: req.quiz});
 };
 
 
@@ -207,40 +135,7 @@ exports.create = function (req, res, next) {
     quiz.save({fields: ["question", "answer", "AuthorId"]})
     .then(function (quiz) {
         req.flash('success', 'Quiz creado con éxito.');
-
-        if (!req.file) {
-            req.flash('info', 'Es un Quiz sin adjunto.');
-            res.redirect('/quizzes/' + quiz.id);
-            return;
-        }
-
-        // Salvar el adjunto en Cloudinary
-        return attHelper.uploadResourceToCloudinary(req.file.path, cloudinary_upload_options)
-        .then(function(uploadResult) {
-
-            // Crear nuevo attachment en la BBDD.
-            return models.Attachment.create({
-                public_id: uploadResult.public_id,
-                url: uploadResult.url,
-                filename: req.file.originalname,
-                mime: req.file.mimetype,
-                QuizId: quiz.id })
-            .then(function(attachment) {
-                req.flash('success', 'Imagen nueva guardada con éxito.');
-            })
-            .catch(function(error) { // Ignoro errores de validacion
-                req.flash('error', 'No se ha podido salvar fichero: ' + error.message);
-                cloudinary.api.delete_resources(uploadResult.public_id);
-            });
-
-        })
-        .catch(function(error) {
-            req.flash('error', 'No se ha podido salvar el adjunto: ' + error.message);
-        })
-        .then(function () {
-            fs.unlink(req.file.path); // borrar el fichero subido a ./uploads
-            res.redirect('/quizzes/' + quiz.id);
-        });
+        res.redirect('/quizzes/' + quiz.id);
     })
     .catch(Sequelize.ValidationError, function (error) {
 
@@ -274,60 +169,6 @@ exports.update = function (req, res, next) {
     req.quiz.save({fields: ["question", "answer"]})
     .then(function (quiz) {
         req.flash('success', 'Quiz editado con éxito.');
-
-        if (!req.body.keepAttachment) {
-
-            // Sin adjunto: Eliminar attachment y adjunto viejos.
-            if (!req.file) {
-                req.flash('info', 'Tenemos un Quiz sin adjunto.');
-                if (quiz.Attachment) {
-                    cloudinary.api.delete_resources(quiz.Attachment.public_id);
-                    quiz.Attachment.destroy();
-                }
-                return;
-            }
-
-            // Salvar el adjunto nueva en Cloudinary
-            return attHelper.uploadResourceToCloudinary(req.file.path, cloudinary_upload_options)
-            .then(function (uploadResult) {
-
-                // Recordar public_id de la imagen antigua.
-                var old_public_id = quiz.Attachment ? quiz.Attachment.public_id : null;
-
-                // Actualizar el attachment en la BBDD.
-                return quiz.getAttachment()
-                .then(function(attachment) {
-                    if (!attachment) {
-                        attachment = models.Attachment.build({ QuizId: quiz.id });
-                    }
-                    attachment.public_id = uploadResult.public_id;
-                    attachment.url = uploadResult.url;
-                    attachment.filename = req.file.originalname;
-                    attachment.mime = req.file.mimetype;
-                    return attachment.save();
-                })
-                .then(function(attachment) {
-                    req.flash('success', 'Imagen nueva guardada con éxito.');
-                    if (old_public_id) {
-                        cloudinary.api.delete_resources(old_public_id);
-                    }
-                })
-                .catch(function(error) { // Ignoro errores de validacion en imagenes
-                    req.flash('error', 'No se ha podido salvar la nueva imagen: '+error.message);
-                    cloudinary.api.delete_resources(uploadResult.public_id);
-                });
-
-
-            })
-            .catch(function(error) {
-                req.flash('error', 'No se ha podido salvar el adjunto: ' + result.error.message);
-            })
-            .then(function () {
-                fs.unlink(req.file.path); // borrar el fichero subido a ./uploads
-            });
-        }
-    })
-    .then(function () {
         res.redirect('/quizzes/' + req.quiz.id);
     })
     .catch(Sequelize.ValidationError, function (error) {
@@ -349,12 +190,6 @@ exports.update = function (req, res, next) {
 // DELETE /quizzes/:quizId
 exports.destroy = function (req, res, next) {
 
-
-    // Borrar el adjunto de Cloudinary (Ignoro resultado)
-    if (req.quiz.Attachment) {
-        cloudinary.api.delete_resources(req.quiz.Attachment.public_id);
-    }
-
     req.quiz.destroy()
     .then(function () {
         req.flash('success', 'Quiz borrado con éxito.');
@@ -374,8 +209,7 @@ exports.play = function (req, res, next) {
 
     res.render('quizzes/play', {
         quiz: req.quiz,
-        answer: answer,
-        cloudinary: cloudinary
+        answer: answer
     });
 };
 
@@ -391,5 +225,82 @@ exports.check = function (req, res, next) {
         quiz: req.quiz,
         result: result,
         answer: answer
+    });
+};
+
+// GET /quizzes/randomPlay
+exports.randomPlay = function (req, res, next) {
+
+    var answer = req.query.answer || '';
+    var empty = false;
+    req.session.score = req.session.score || 0;
+    req.session.prevscore = req.session.prevscore || 0;
+    req.session.pregs = req.session.pregs || [-1];
+    var findOptions = {};
+    var opcion = {
+        id: {
+            $notIn: req.session.pregs
+        }
+    };
+
+    models.Quiz.count({where: opcion})
+        .then(function (count) {
+            if (count === 0) {
+                empty = true;
+            }
+            findOptions.offset = Math.floor(Math.random() * count);
+            findOptions.limit = +1;
+            findOptions.where = opcion;
+            console.log(count);
+            return models.Quiz.findAll(findOptions);
+        })
+        .then(function (quiz) {
+            if (!empty){
+                req.session.prevscore = req.session.score;
+                res.render('quizzes/random_play', {
+                    quiz: quiz[0],
+                    answer: answer,
+                    score: req.session.score
+                });
+            }else {
+                var score = req.session.score;
+                req.session.pregs = [-1];
+                req.session.score = 0;
+                req.session.prevscore = 0;
+                res.render('quizzes/random_nomore', {
+                    score: score
+                });
+            }
+        })
+        .catch(function (error) {
+            console.log('error+ '+error);
+            next(error);
+        });
+
+};
+
+// GET /randomcheck
+exports.randomcheck = function (req, res, next) {
+
+    var answer = req.query.answer || "";
+    req.session.score = req.session.score || 0;
+    req.session.prevscore = req.session.prevscore || 0;
+    req.session.pregs = req.session.pregs || [];
+    req.session.pregs.push(req.quiz.id);
+
+    var result = answer.toLowerCase().trim() === req.quiz.answer.toLowerCase().trim();
+    if (result){
+        req.session.score = req.session.prevscore + 1;
+    }else {
+        req.session.pregs = [-1];
+        req.session.score = 0;
+        req.session.prevscore = 0;
+    }
+
+    res.render('quizzes/random_result', {
+        quiz: req.quiz,
+        result: result,
+        answer: answer,
+        score: req.session.score
     });
 };
