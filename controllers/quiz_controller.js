@@ -229,7 +229,7 @@ exports.check = function (req, res, next) {
 };
 
 // GET /quizzes/randomPlay
-exports.randomPlay = function (req, res, next) {
+exports.randomplay = function (req, res, next) {
 
     var answer = req.query.answer || '';
     var empty = false;
